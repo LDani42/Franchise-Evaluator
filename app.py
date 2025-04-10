@@ -332,22 +332,27 @@ def main():
                     # Import anthropic here directly
                     import anthropic
                     
-                    # Check which version of anthropic is installed and use appropriate client initialization
-                    import pkg_resources
-                    anthropic_version = pkg_resources.get_distribution("anthropic").version
-                    
-                    if anthropic_version.startswith("0."):
-                        # For older versions (pre-1.0)
-                        client = anthropic.Client(api_key=api_key)
-                        
-                        # Use the selected model with older API format
-                        response = client.completion(
-                            prompt=f"{anthropic.HUMAN_PROMPT} {prompt} {anthropic.AI_PROMPT}",
-                            model=selected_model,
-                            max_tokens_to_sample=4000,
-                        )
-                        message_content = response['completion']
-                    else:
+                    # Try the older Client approach first (pre-1.0)
+                    try:
+                        # Check if the older Client class exists
+                        if hasattr(anthropic, 'Client'):
+                            client = anthropic.Client(api_key=api_key)
+                            
+                            # Use the selected model with older API format
+                            constants_exist = hasattr(anthropic, 'HUMAN_PROMPT') and hasattr(anthropic, 'AI_PROMPT')
+                            if constants_exist:
+                                response = client.completion(
+                                    prompt=f"{anthropic.HUMAN_PROMPT} {prompt} {anthropic.AI_PROMPT}",
+                                    model=selected_model,
+                                    max_tokens_to_sample=4000,
+                                )
+                                message_content = response['completion']
+                            else:
+                                st.error("Anthropic library version mismatch. Missing constants.")
+                                raise Exception("Anthropic library version mismatch")
+                        else:
+                            raise AttributeError("Client class not found, trying newer API")
+                    except (AttributeError, TypeError):
                         # For newer versions (1.0+)
                         client = anthropic.Anthropic(api_key=api_key)
                         
