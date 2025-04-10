@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime
 import time
+import io
 
 # Set page configuration
 st.set_page_config(
@@ -10,6 +11,27 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
+
+# Function to read the default heuristics model
+@st.cache_data
+def load_default_heuristics():
+    try:
+        with open('spinelli_heuristics_model.json', 'r') as f:
+            return f.read()
+    except Exception as e:
+        st.warning(f"Could not load default heuristics model: {str(e)}")
+        # Return a simplified model as fallback
+        return json.dumps({
+            "name": "Spinelli Heuristics Model",
+            "dimensions": [
+                "Market Opportunity Assessment",
+                "Value Creation & Brand Positioning",
+                "Operational Excellence & Knowledge Transfer",
+                "Financial Structure & Alignment",
+                "Leadership & Support Systems",
+                "Adaptability & Growth Potential"
+            ]
+        })
 
 # Define the evaluation framework
 evaluation_framework = {
@@ -66,6 +88,54 @@ evaluation_framework = {
     ]
 }
 
+# Function to extract text from different file types
+def extract_text_from_file(file):
+    file_extension = file.name.split('.')[-1].lower()
+    file_content = None
+    
+    if file_extension in ['txt', 'md']:
+        # For text files, simply read the content
+        file_content = file.read().decode('utf-8', errors='ignore')
+    
+    elif file_extension == 'pdf':
+        try:
+            import PyPDF2
+            from io import BytesIO
+            
+            pdf_file = BytesIO(file.read())
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            
+            text = []
+            for page_num in range(len(pdf_reader.pages)):
+                text.append(pdf_reader.pages[page_num].extract_text())
+            
+            file_content = "\n\n".join(text)
+        except Exception as e:
+            st.error(f"Error processing PDF file {file.name}: {str(e)}")
+            file_content = f"[Error extracting text from PDF: {str(e)}]"
+    
+    elif file_extension in ['docx', 'doc']:
+        try:
+            import docx
+            from io import BytesIO
+            
+            doc_file = BytesIO(file.read())
+            doc = docx.Document(doc_file)
+            
+            text = []
+            for para in doc.paragraphs:
+                text.append(para.text)
+            
+            file_content = "\n".join(text)
+        except Exception as e:
+            st.error(f"Error processing Word file {file.name}: {str(e)}")
+            file_content = f"[Error extracting text from DOCX: {str(e)}]"
+    
+    else:
+        file_content = f"[Unsupported file type: {file_extension}]"
+    
+    return file_content
+
 # Function to create a prompt for Claude
 def create_prompt(franchise_files, heuristics_content=None):
     # Process franchise proposal documents
@@ -77,8 +147,8 @@ def create_prompt(franchise_files, heuristics_content=None):
     if heuristics_content:
         heuristics_model = heuristics_content
     else:
-        # Use a simplified default heuristics model
-        heuristics_model = json.dumps(evaluation_framework)
+        # Use default heuristics model from file
+        heuristics_model = load_default_heuristics()
     
     # Create the prompt for Claude
     prompt = f"""
@@ -157,6 +227,10 @@ Please structure your response in the following format:
     
     return prompt
 
+# Function to display evaluation results with formatting
+def display_evaluation_results(response_text):
+    st.markdown(response_text)
+
 # Main Streamlit UI
 def main():
     st.title("Franchise Proposal Evaluator")
@@ -179,17 +253,11 @@ def main():
         st.header("Upload Documents")
         
         # Check for Claude API key in secrets
-        # First check if we're in debug/dev mode
-        debug_mode = st.sidebar.checkbox("Debug Mode (Use API key input)", value=False)
-        
-        # API Key handling - first check secrets, then allow manual input if in debug mode
-        if not debug_mode and 'api_keys' in st.secrets and 'claude' in st.secrets.api_keys:
+        if 'api_keys' in st.secrets and 'claude' in st.secrets.api_keys:
             api_key = st.secrets.api_keys.claude
             st.success("✅ Claude API key loaded from secrets")
-        elif debug_mode:
-            api_key = st.text_input("Claude API Key", type="password", help="Enter your Claude API key")
         else:
-            # If we're not in debug mode and can't find the key in secrets, show a more helpful message
+            # If we can't find the key in secrets, show a more helpful message
             st.error("Claude API key not found in secrets. Please contact the administrator.")
             # Set a dummy key that won't work, just to avoid errors
             api_key = "not_found"
@@ -202,50 +270,57 @@ def main():
         st.subheader("Franchise Proposal Documents")
         uploaded_files = st.file_uploader("Upload franchise proposal documents", 
                                           accept_multiple_files=True, 
-                                          type=["txt", "md"])
-        
-        # Heuristics model upload (optional)
-        st.subheader("Heuristics Model (Optional)")
-        heuristics_file = st.file_uploader("Upload custom heuristics model", 
-                                         type=["json", "txt"], 
-                                         help="If not provided, we'll use our standard heuristics model")
+                                          type=["txt", "md", "pdf", "docx", "doc"])
         
         # Display uploaded files
         if uploaded_files:
             st.subheader("Uploaded Files")
-            for file in uploaded_files:
-                st.text(f"📄 {file.name}")
+            files_container = st.container()
+            with files_container:
+                for file in uploaded_files:
+                    st.text(f"📄 {file.name}")
         
-        # Analyze button - disable if no API key or in non-debug mode with missing key
-        button_disabled = not uploaded_files or (api_key == "not_found" and not debug_mode)
+        # Analyze button - disable if no API key or no files
+        button_disabled = not uploaded_files or api_key == "not_found"
         
         if st.button("Analyze Franchise Proposal", disabled=button_disabled):
-            if api_key == "not_found" and not debug_mode:
-                st.error("API key not found. Please contact the administrator or enable debug mode.")
-            elif not api_key and debug_mode:
-                st.warning("Please enter your Claude API key")
+            if api_key == "not_found":
+                st.error("API key not found. Please contact the administrator.")
             elif not uploaded_files:
                 st.warning("Please upload at least one franchise document")
             else:
                 # Process files
                 franchise_files = {}
-                for file in uploaded_files:
-                    # Read file content as text
-                    file_content = file.read().decode("utf-8", errors="ignore")
+                
+                # Create progress bar for file processing
+                file_progress = st.progress(0)
+                file_status = st.empty()
+                
+                # Process each file
+                for i, file in enumerate(uploaded_files):
+                    file_status.text(f"Processing file {i+1} of {len(uploaded_files)}: {file.name}")
+                    
+                    # Extract text from file
+                    file_content = extract_text_from_file(file)
+                    
+                    # Add to files dictionary
                     franchise_files[file.name] = file_content
+                    
+                    # Update progress
+                    file_progress.progress((i+1) / len(uploaded_files))
                 
-                # Read heuristics model if provided
-                heuristics_content = None
-                if heuristics_file:
-                    heuristics_content = heuristics_file.read().decode("utf-8", errors="ignore")
+                file_status.text("All files processed successfully")
                 
-                # Create progress bar
+                # Create progress bar for analysis
                 progress_bar = st.progress(0)
                 
                 # Create placeholder for status
                 status_placeholder = st.empty()
                 status_placeholder.text("Preparing documents for analysis...")
                 progress_bar.progress(10)
+                
+                # Load default heuristics model
+                heuristics_content = load_default_heuristics()
                 
                 # Generate prompt
                 prompt = create_prompt(franchise_files, heuristics_content)
@@ -286,18 +361,33 @@ def main():
     # Tab 3: Results
     with tab3:
         if 'raw_response' in st.session_state and st.session_state.raw_response:
-            st.markdown(st.session_state.raw_response)
+            # Display formatted evaluation results
+            display_evaluation_results(st.session_state.raw_response)
             
             # Download options
             st.header("Download Results")
             
-            if st.download_button(
-                label="Download as Text",
-                data=st.session_state.raw_response,
-                file_name=f"franchise-evaluation-{datetime.now().strftime('%Y-%m-%d')}.txt",
-                mime="text/plain"
-            ):
-                pass
+            # Offer multiple download formats
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.download_button(
+                    label="Download as Text",
+                    data=st.session_state.raw_response,
+                    file_name=f"franchise-evaluation-{datetime.now().strftime('%Y-%m-%d')}.txt",
+                    mime="text/plain"
+                ):
+                    pass
+            
+            with col2:
+                # Create a markdown version with better formatting
+                if st.download_button(
+                    label="Download as Markdown",
+                    data=st.session_state.raw_response,
+                    file_name=f"franchise-evaluation-{datetime.now().strftime('%Y-%m-%d')}.md",
+                    mime="text/markdown"
+                ):
+                    pass
         else:
             st.info("No analysis results yet. Please upload documents and run analysis in the 'Upload & Analyze' tab.")
 
