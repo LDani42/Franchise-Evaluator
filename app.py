@@ -332,20 +332,36 @@ def main():
                     # Import anthropic here directly
                     import anthropic
                     
-                    client = anthropic.Anthropic(api_key=api_key)
+                    # Check which version of anthropic is installed and use appropriate client initialization
+                    import pkg_resources
+                    anthropic_version = pkg_resources.get_distribution("anthropic").version
                     
-                    # Use the selected model
-                    message = client.messages.create(
-                        model=selected_model,  # Use selected model from dropdown
-                        max_tokens=4000,
-                        messages=[
-                            {"role": "user", "content": prompt}
-                        ]
-                    )
-                    response = message.content[0].text
-                    
+                    if anthropic_version.startswith("0."):
+                        # For older versions (pre-1.0)
+                        client = anthropic.Client(api_key=api_key)
+                        
+                        # Use the selected model with older API format
+                        response = client.completion(
+                            prompt=f"{anthropic.HUMAN_PROMPT} {prompt} {anthropic.AI_PROMPT}",
+                            model=selected_model,
+                            max_tokens_to_sample=4000,
+                        )
+                        message_content = response['completion']
+                    else:
+                        # For newer versions (1.0+)
+                        client = anthropic.Anthropic(api_key=api_key)
+                        
+                        # Use the selected model
+                        message = client.messages.create(
+                            model=selected_model,
+                            max_tokens=4000,
+                            messages=[
+                                {"role": "user", "content": prompt}
+                            ]
+                        )
+                        message_content = message.content[0].text
                     # Store raw response in session state
-                    st.session_state.raw_response = response
+                    st.session_state.raw_response = message_content
                     
                     # Update progress and status
                     progress_bar.progress(100)
