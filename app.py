@@ -4,7 +4,6 @@ import os
 from datetime import datetime
 import time
 import io
-import pkg_resources
 
 # Set page configuration
 st.set_page_config(
@@ -17,43 +16,22 @@ st.set_page_config(
 @st.cache_data
 def load_default_heuristics():
     try:
-        # Get the current script's directory
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # Try multiple potential paths for the heuristics file
-        potential_paths = [
-            # Try the current directory
-            os.path.join(current_dir, 'spinelli_heuristics_model.json'),
-            # Try the root directory
-            os.path.join(os.path.dirname(current_dir), 'spinelli_heuristics_model.json'),
-            # Try just the filename (might work in some deployments)
-            'spinelli_heuristics_model.json',
-            # Try relative path from working directory
-            './spinelli_heuristics_model.json',
-        ]
-        
-        # Log the paths we're trying (for debugging)
-        st.write(f"Current directory: {current_dir}")
-        st.write("Trying to load heuristics model from the following paths:")
-        for path in potential_paths:
-            st.write(f"- {path}")
-        
-        # Try each potential path
-        for path in potential_paths:
-            if os.path.exists(path):
-                with open(path, 'r') as f:
-                    st.write(f"Successfully loaded from: {path}")
-                    return f.read()
-        
-        # If we get here, none of the paths worked
-        st.warning("Could not find the heuristics model file in any expected location")
-        
-        # Fall back to using the embedded model
-        return json.dumps(evaluation_framework)
+        with open('spinelli_heuristics_model.json', 'r') as f:
+            return f.read()
     except Exception as e:
         st.warning(f"Could not load default heuristics model: {str(e)}")
         # Return a simplified model as fallback
-        return json.dumps(evaluation_framework)
+        return json.dumps({
+            "name": "Spinelli Heuristics Model",
+            "dimensions": [
+                "Market Opportunity Assessment",
+                "Value Creation & Brand Positioning",
+                "Operational Excellence & Knowledge Transfer",
+                "Financial Structure & Alignment",
+                "Leadership & Support Systems",
+                "Adaptability & Growth Potential"
+            ]
+        })
 
 # Define the evaluation framework
 evaluation_framework = {
