@@ -178,8 +178,21 @@ def main():
     with tab2:
         st.header("Upload Documents")
         
-        # Claude API Key input
-        api_key = st.text_input("Claude API Key", type="password", help="Enter your Claude API key")
+        # Check for Claude API key in secrets
+        # First check if we're in debug/dev mode
+        debug_mode = st.sidebar.checkbox("Debug Mode (Use API key input)", value=False)
+        
+        # API Key handling - first check secrets, then allow manual input if in debug mode
+        if not debug_mode and 'api_keys' in st.secrets and 'claude' in st.secrets.api_keys:
+            api_key = st.secrets.api_keys.claude
+            st.success("✅ Claude API key loaded from secrets")
+        elif debug_mode:
+            api_key = st.text_input("Claude API Key", type="password", help="Enter your Claude API key")
+        else:
+            # If we're not in debug mode and can't find the key in secrets, show a more helpful message
+            st.error("Claude API key not found in secrets. Please contact the administrator.")
+            # Set a dummy key that won't work, just to avoid errors
+            api_key = "not_found"
         
         # Model selection with default to recommended model
         model_options = ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20240229", "claude-3-opus-20240229"]
@@ -203,9 +216,13 @@ def main():
             for file in uploaded_files:
                 st.text(f"📄 {file.name}")
         
-        # Analyze button
-        if st.button("Analyze Franchise Proposal", disabled=not (api_key and uploaded_files)):
-            if not api_key:
+        # Analyze button - disable if no API key or in non-debug mode with missing key
+        button_disabled = not uploaded_files or (api_key == "not_found" and not debug_mode)
+        
+        if st.button("Analyze Franchise Proposal", disabled=button_disabled):
+            if api_key == "not_found" and not debug_mode:
+                st.error("API key not found. Please contact the administrator or enable debug mode.")
+            elif not api_key and debug_mode:
                 st.warning("Please enter your Claude API key")
             elif not uploaded_files:
                 st.warning("Please upload at least one franchise document")
