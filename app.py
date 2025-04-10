@@ -16,7 +16,7 @@ st.set_page_config(
 @st.cache_data
 def load_default_heuristics():
     try:
-        with open('spinelli_heuristics_model.json', 'r') as f:
+        with open('spinelli_heuristics_model', 'r') as f:
             return f.read()
     except Exception as e:
         st.warning(f"Could not load default heuristics model: {str(e)}")
